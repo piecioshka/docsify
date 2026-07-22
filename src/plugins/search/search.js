@@ -85,6 +85,7 @@ export function genIndex(path, content = '', router, depth) {
   const index = {};
   let slug;
   let title = '';
+  let pageTitle = '';
 
   tokens.forEach(function (token, tokenIndex) {
     if (token.type === 'heading' && token.depth <= depth) {
@@ -100,6 +101,10 @@ export function genIndex(path, content = '', router, depth) {
 
       if (str) {
         title = removeDocsifyIgnoreTag(str);
+      }
+
+      if (!pageTitle && title) {
+        pageTitle = title;
       }
 
       index[slug] = { slug, title: title, body: '' };
@@ -133,6 +138,13 @@ export function genIndex(path, content = '', router, depth) {
     }
   });
   slugify.clear();
+
+  // Let every entry know which page it belongs to, so search results can
+  // show the page title next to matched section titles.
+  Object.keys(index).forEach(key => {
+    index[key].pageTitle = pageTitle;
+  });
+
   return index;
 }
 
@@ -224,11 +236,15 @@ export function search(query) {
       });
 
       if (matchesScore > 0) {
+        const postPageTitle = post.pageTitle && post.pageTitle.trim();
         const matchingPost = {
           title: handlePostTitle,
           content: postContent ? resultStr : '',
           url: postUrl,
           score: matchesScore,
+          page: postPageTitle
+            ? escapeHtml(ignoreDiacriticalMarks(postPageTitle))
+            : '',
         };
 
         matchingResults.push(matchingPost);

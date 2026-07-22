@@ -103,6 +103,13 @@ function style() {
   text-align: center;
 }
 
+.search .matching-post p.page {
+  margin: 0.25em 0 0 0;
+  color: #999;
+  font-size: 12px;
+  -webkit-line-clamp: 1;
+}
+
 .app-name.hide, .sidebar-nav.hide {
   display: none;
 }`;
@@ -154,10 +161,14 @@ function doSearch(value) {
 
   let html = '';
   matchs.forEach(post => {
+    // Show which page the result comes from, unless the matched section
+    // title is already the page title.
+    const page = post.page && post.page !== post.title ? post.page : '';
     html += `<div class="matching-post">
 <a href="${post.url}">
 <h2>${post.title}</h2>
 <p>${post.content}</p>
+${page ? `<p class="page">${page}</p>` : ''}
 </a>
 </div>`;
   });
