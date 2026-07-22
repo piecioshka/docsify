@@ -4,6 +4,137 @@ import { search } from './search';
 let NO_DATA_TEXT = '';
 let options;
 
+// Strip emoji (pictographs, flags, variation selectors, ZWJ, keycaps) from
+// sidebar labels and page titles so source labels stay plain text.
+function stripEmoji(text) {
+  return (text || '')
+    .replace(
+      /(?:[\uD83C-\uD83E][\uDC00-\uDFFF])|[\u2600-\u27BF\u2B00-\u2BFF]|\uFE0E|\uFE0F|\u200D|\u20E3/g,
+      ''
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function escapeHtml(string) {
+  const entityMap = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  };
+
+  return String(string).replace(/[&<>"']/g, s => entityMap[s]);
+}
+
+// User-authored links may contain malformed percent-encoding, on which
+// decodeURIComponent() throws.
+function safeDecode(uri) {
+  try {
+    return decodeURIComponent(uri);
+  } catch (e) {
+    return uri;
+  }
+}
+
+function findSidebarLink(url) {
+  const base = safeDecode((url || '').split('?')[0]);
+
+  return Docsify.dom
+    .findAll('.sidebar-nav a')
+    .find(a => safeDecode((a.getAttribute('href') || '').split('?')[0]) === base);
+}
+
+// Label of a sidebar list item: its own text or link text, without the text
+// of the nested list of children.
+function groupLabel(li) {
+  for (let i = 0; i < li.childNodes.length; i++) {
+    const node = li.childNodes[i];
+
+    if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+      return node.textContent.trim();
+    }
+
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      if (node.tagName === 'UL') {
+        break;
+      }
+
+      const text = node.textContent.trim();
+
+      if (text) {
+        return text;
+      }
+    }
+  }
+
+  return '';
+}
+
+// Walk the sidebar tree from the link matching the result URL up to the
+// root, collecting section labels along the way.
+function getBreadcrumb(url) {
+  const link = findSidebarLink(url);
+
+  if (!link) {
+    return null;
+  }
+
+  const parts = [link.textContent.trim()];
+  let li = link.closest('li');
+
+  while (li) {
+    const parentLi = li.parentElement ? li.parentElement.closest('li') : null;
+
+    if (parentLi) {
+      const label = groupLabel(parentLi);
+
+      if (label) {
+        parts.unshift(label);
+      }
+    }
+
+    li = parentLi;
+  }
+
+  return parts;
+}
+
+function resultSourceHtml(post) {
+  if (options.resultSource === 'breadcrumb') {
+    const parts = getBreadcrumb(post.url);
+
+    if (parts && parts.length) {
+      const crumbs = parts
+        .map((part, i) => {
+          const label = escapeHtml(stripEmoji(part));
+          // The page itself (last segment) stands out from its sections.
+          return i === parts.length - 1 ? `<strong>${label}</strong>` : label;
+        })
+        .join(' › ');
+
+      return `<p class="search-breadcrumb">${crumbs}</p>`;
+    }
+
+    // The page is not in the sidebar: fall back to its page title.
+    return post.page
+      ? `<p class="search-breadcrumb"><strong>${stripEmoji(post.page)}</strong></p>`
+      : '';
+  }
+
+  if (options.resultSource === 'page') {
+    // Skip the label when the matched title is the page title itself.
+    const page = post.page && post.page !== post.title ? post.page : '';
+
+    return page
+      ? `<p class="search-breadcrumb"><strong>${stripEmoji(page)}</strong></p>`
+      : '';
+  }
+
+  return '';
+}
+
 function style() {
   const code = `
 .sidebar {
@@ -103,10 +234,12 @@ function style() {
   text-align: center;
 }
 
-.search .matching-post p.page {
+.search .matching-post p.search-breadcrumb {
   margin: 0.25em 0 0 0;
-  color: #999;
+  color: inherit;
+  opacity: 0.8;
   font-size: 12px;
+  text-align: right;
   -webkit-line-clamp: 1;
 }
 
@@ -161,14 +294,11 @@ function doSearch(value) {
 
   let html = '';
   matchs.forEach(post => {
-    // Show which page the result comes from, unless the matched section
-    // title is already the page title.
-    const page = post.page && post.page !== post.title ? post.page : '';
     html += `<div class="matching-post">
 <a href="${post.url}">
 <h2>${post.title}</h2>
 <p>${post.content}</p>
-${page ? `<p class="page">${page}</p>` : ''}
+${resultSourceHtml(post)}
 </a>
 </div>`;
   });
